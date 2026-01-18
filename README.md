@@ -57,3 +57,21 @@ curl -sL https://raw.githubusercontent.com/hattimon/redshift-scheduler/main/unin
 - Ikona w zasobniku (obok głośnika): kliknij aby włączyć/wyłączyć
 - Menu prawym przyciskiem: Ustawienia, temperatura, wyjście
 - Ustawienia: `redshift-scheduler-config`
+
+redshift-scheduler/
+├── install.sh                    # GUI installer + systemd setup
+├── uninstall.sh                  # Full cleanup (systemd + files)
+├── README.md                     # EN/PL docs
+├── redshift-scheduler/
+│   ├── __init__.py
+│   ├── daemon.py                 # Systemd service (harmonogram + redshift)
+│   ├── applet.py                 # Tray icon + menu
+│   ├── config.py                 # Config handler (JSON)
+│   └── gui.py                     # Settings GUI (PySimpleGUI)
+├── data/
+│   ├── redshift-scheduler.service # Systemd unit
+│   ├── redshift-scheduler.desktop # XFCE autostart
+│   ├── icons/ (SVG icons)
+│   └── config.json.default
+├── setup.py                      # Python package
+└── .github/workflows/            # CI/CD (optional)
