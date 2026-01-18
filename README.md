@@ -58,6 +58,11 @@ curl -sL https://raw.githubusercontent.com/hattimon/redshift-scheduler/main/unin
 - Menu prawym przyciskiem: Ustawienia, temperatura, wyjście
 - Ustawienia: `redshift-scheduler-config`
 
+---
+
+## Project Structure
+
+```text
 redshift-scheduler/
 ├── install.sh                    # GUI installer + systemd setup
 ├── uninstall.sh                  # Full cleanup (systemd + files)
@@ -67,7 +72,7 @@ redshift-scheduler/
 │   ├── daemon.py                 # Systemd service (harmonogram + redshift)
 │   ├── applet.py                 # Tray icon + menu
 │   ├── config.py                 # Config handler (JSON)
-│   └── gui.py                     # Settings GUI (PySimpleGUI)
+│   └── gui.py                    # Settings GUI (PySimpleGUI)
 ├── data/
 │   ├── redshift-scheduler.service # Systemd unit
 │   ├── redshift-scheduler.desktop # XFCE autostart
@@ -75,3 +80,4 @@ redshift-scheduler/
 │   └── config.json.default
 ├── setup.py                      # Python package
 └── .github/workflows/            # CI/CD (optional)
+```
