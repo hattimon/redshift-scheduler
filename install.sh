@@ -10,35 +10,35 @@ REPO_RAW="https://raw.githubusercontent.com/hattimon/redshift-scheduler/main/red
 log() { echo -e "${GREEN}[*] $1${NC}"; }
 error() { echo -e "${RED}[✗] $1${NC}"; exit 1; }
 
-log "Installing Redshift Scheduler..."
+log "Installing Redshift Scheduler (No Python GUI deps)..."
 
-# Internet check
-ping -c 1 archive.ubuntu.com &>/dev/null || error "No internet."
-
-# Packages (NO jq!)
+# Packages (NO pipx/PySimpleGUI!)
 sudo apt update
-sudo apt install -y python3 python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
-  redshift zenity libnotify-bin pipx || error "Packages failed."
-
-# PySimpleGUI via pipx (fixes externally-managed)
-pipx ensurepath
-pipx install PySimpleGUI --include-deps >/dev/null 2>&1 || true
+sudo apt install -y python3 python3-gi gir1.2-gtk-3.0 redshift zenity libnotify-bin || error "Packages"
 
 # Directories
 mkdir -p ~/.local/bin ~/.config/{systemd/user,autostart} ~/.config/redshift-scheduler
 
-# Download Python files from GitHub raw
-log "Downloading application..."
-curl -sL "$REPO_RAW/daemon.py" -o ~/.local/bin/redshift-scheduler-daemon || error "daemon.py"
-curl -sL "$REPO_RAW/applet.py" -o ~/.local/bin/redshift-scheduler-applet || error "applet.py"
-curl -sL "$REPO_RAW/gui.py" -o ~/.local/bin/redshift-scheduler-config || error "gui.py"
+# Download Python files (Python3-gi dla applet)
+log "Downloading core files..."
+curl -sL "$REPO_RAW/daemon.py" -o ~/.local/bin/redshift-scheduler-daemon || error "daemon"
+curl -sL "$REPO_RAW/applet.py" -o ~/.local/bin/redshift-scheduler-applet || error "applet"
 
 chmod +x ~/.local/bin/redshift-scheduler-*
 
 # PATH
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 
-# Systemd service (FIXED display)
+# Default config (bez PySimpleGUI)
+cat > ~/.config/redshift-scheduler/config.json << EOF
+{
+  "enabled": true,
+  "schedule": {"start": "21:00", "stop": "08:00"},
+  "temps": {"day": 5800, "night": 4800}
+}
+EOF
+
+# Systemd service (XFCE-ready)
 cat > ~/.config/systemd/user/redshift-scheduler.service << 'EOF'
 [Unit]
 Description=Redshift Scheduler
@@ -48,30 +48,31 @@ After=graphical-session.target
 Type=simple
 ExecStart=%h/.local/bin/redshift-scheduler-daemon
 Restart=always
-RestartSec=5
+RestartSec=10
 Environment=DISPLAY=:0
-Environment=XDG_RUNTIME_DIR=%h/.xdg
 
 [Install]
 WantedBy=default.target
 EOF
 
-# XFCE autostart applet
+# XFCE autostart (tray applet)
 cat > ~/.config/autostart/redshift-scheduler.desktop << 'EOF'
 [Desktop Entry]
 Type=Application
-Name=Redshift Scheduler Applet
+Name=Redshift Scheduler
 Exec=%h/.local/bin/redshift-scheduler-applet
 NoDisplay=false
 EOF
 
 # Enable services
 systemctl --user daemon-reload
-systemctl --user enable --now redshift-scheduler
+systemctl --user enable redshift-scheduler
+systemctl --user restart redshift-scheduler
 
-log "✅ Installation COMPLETE!"
-log "🖥️ Tray icon: next to speaker (restart XFCE if needed)"
-log "⚙️ Settings: redshift-scheduler-config"
+log "✅ Installation COMPLETE! (lightweight)"
+log "🖥️ Tray icon: restart XFCE or log out/in"
 log "📊 Status: systemctl --user status redshift-scheduler"
+log "⚙️ Config: nano ~/.config/redshift-scheduler/config.json"
+log "🌙 Default: 21:00-08:00 night mode"
 
-zenity --info --text="✅ Redshift Scheduler installed!\n\nTray: speaker area\nConfig: redshift-scheduler-config" 2>/dev/null || true
+zenity --info --text="✅ Redshift Scheduler ready!\n\nTray icon after restart\nStatus: systemctl --user status redshift-scheduler\nConfig: ~/.config/redshift-scheduler/config.json" 2>/dev/null || true
