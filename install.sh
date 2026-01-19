@@ -13,7 +13,7 @@ log "Installing Redshift Scheduler..."
 # Ignore Brave GPG errors
 sudo apt update -o APT::Get::AllowUnauthenticated=true 2>&1 | grep -v "NO_PUBKEY" || true
 
-# Install packages (already installed, but ensures they're there)
+# Install packages
 log "Checking packages..."
 sudo apt install -y python3 python3-gi gir1.2-gtk-3.0 redshift zenity libnotify-bin 2>&1 | grep -v "already" || true
 
@@ -43,7 +43,7 @@ cat > ~/.config/redshift-scheduler/config.json << 'EOF'
 }
 EOF
 
-# Systemd service - FIXED for MX Linux
+# Systemd service
 cat > ~/.config/systemd/user/redshift-scheduler.service << 'EOF'
 [Unit]
 Description=Redshift Scheduler Daemon
@@ -76,8 +76,6 @@ log "Setting up systemd..."
 mkdir -p ~/.config/systemd/user
 systemctl --user daemon-reload 2>/dev/null || echo "Note: daemon-reload may fail in sandbox, ignore"
 systemctl --user enable redshift-scheduler 2>/dev/null || true
-
-# Try to start (may fail if not in session, that's ok)
 systemctl --user restart redshift-scheduler 2>/dev/null || echo "Note: Start via session or: systemctl --user start redshift-scheduler"
 
 log "✅ Installation complete!"
@@ -88,4 +86,3 @@ log "  3. Check status: systemctl --user status redshift-scheduler"
 log "  4. Edit config: nano ~/.config/redshift-scheduler/config.json"
 
 zenity --info --text="✅ Redshift Scheduler installed!\n\n📝 Tray icon appears after session restart\n📊 Status: systemctl --user status redshift-scheduler\n⚙️ Config: ~/.config/redshift-scheduler/config.json" 2>/dev/null || echo "Installation done!"
-INSTALL_EOF
