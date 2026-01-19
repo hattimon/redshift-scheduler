@@ -1,39 +1,32 @@
 #!/bin/bash
 set -e
-
 GREEN='\033[0;32m'; RED='\033[0;31m'; NC='\033[0m'
 log() { echo -e "${GREEN}[*] $1${NC}"; }
 error() { echo -e "${RED}[✗] $1${NC}"; exit 1; }
 
-# Graficzny progress
-show_progress() {
-  zenity --progress --no-cancel --auto-close --text="Installing Redshift Scheduler..." 2>/dev/null || true
-}
+REPO="https://raw.githubusercontent.com/hattimon/redshift-scheduler/main/redshift-scheduler"
 
 log "Installing Redshift Scheduler..."
 
 # Packages
 sudo apt update
-sudo apt install -y python3 python3-gi python3-gi-cairo gir1.2-gtk-3.0 redshift zenity libnotify-bin python3-pil || error "Packages failed"
+sudo apt install -y python3 python3-gi python3-gi-cairo gir1.2-gtk-3.0 redshift zenity libnotify-bin python3-pip || error "Packages"
 
-# Python GUI lib
-pip3 install --user pysimplegui 2>/dev/null || true
+pip3 install --user PySimpleGUI 2>/dev/null || pip3 install PySimpleGUI --user
 
-# Create structure
-mkdir -p ~/.config/redshift-scheduler
-mkdir -p ~/.local/share/redshift-scheduler/icons
-mkdir -p ~/.local/bin
+# Download Python files
+mkdir -p ~/.local/bin ~/.local/share/redshift-scheduler/icons
 
-# Copy files (z repo)
-cp redshift-scheduler/daemon.py ~/.local/bin/redshift-scheduler-daemon
-cp redshift-scheduler/applet.py ~/.local/bin/redshift-scheduler-applet
-cp redshift-scheduler/gui.py ~/.local/bin/redshift-scheduler-config
+curl -sL "$REPO/daemon.py" -o ~/.local/bin/redshift-scheduler-daemon || error "daemon.py"
+curl -sL "$REPO/applet.py" -o ~/.local/bin/redshift-scheduler-applet || error "applet.py"
+curl -sL "$REPO/gui.py" -o ~/.local/bin/redshift-scheduler-config || error "gui.py"
+
 chmod +x ~/.local/bin/redshift-scheduler-*
 
-# Icons (placeholder SVG)
-cp data/icons/*.svg ~/.local/share/redshift-scheduler/icons/ 2>/dev/null || true
+# PATH
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 
-# Systemd service (user)
+# Systemd service
 mkdir -p ~/.config/systemd/user
 cat > ~/.config/systemd/user/redshift-scheduler.service << 'EOF'
 [Unit]
@@ -50,22 +43,9 @@ RestartSec=5
 WantedBy=default.target
 EOF
 
-# XFCE autostart
-mkdir -p ~/.config/autostart
-cat > ~/.config/autostart/redshift-scheduler.desktop << 'EOF'
-[Desktop Entry]
-Type=Application
-Name=Redshift Scheduler
-Exec=%h/.local/bin/redshift-scheduler-applet
-NoDisplay=false
-Terminal=false
-Categories=Utility;
-EOF
-
-# Enable systemd service
 systemctl --user daemon-reload
 systemctl --user enable redshift-scheduler
 systemctl --user start redshift-scheduler
 
 log "✅ Installation complete!"
-zenity --info --text="Redshift Scheduler installed!\n\n✅ Daemon running\n✅ Tray applet active\n✅ Settings: redshift-scheduler-config" 2>/dev/null || echo "Setup done!"
+zenity --info --text="Redshift Scheduler ready!\nTray icon next to speaker\nSettings: redshift-scheduler-config"
