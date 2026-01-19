@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import os
-import sys
 import json
 import time
 import subprocess
@@ -24,19 +23,26 @@ def load_config():
 
 def is_night_time(config):
     now = datetime.datetime.now().strftime("%H:%M")
-    return config["schedule"]["start"] <= now or now <= config["schedule"]["stop"]
+    start = config["schedule"]["start"]
+    stop = config["schedule"]["stop"]
+    
+    if start < stop:
+        return start <= now <= stop
+    else:
+        return now >= start or now <= stop
 
-def set_redshift(enabled, night_temp):
+def set_redshift(enabled, temp):
     try:
+        subprocess.run(["killall", "redshift"], check=False, stderr=subprocess.DEVNULL)
         if enabled:
-            subprocess.run(["redshift", "-O", str(night_temp)], check=False)
+            subprocess.Popen(["redshift", "-O", str(temp)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
-            subprocess.run(["redshift", "-x"], check=False)
+            subprocess.Popen(["redshift", "-x"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except:
         pass
 
 def main():
-    config = load_config()
+    current_state = None
     
     while True:
         try:
@@ -44,11 +50,20 @@ def main():
             
             if config["enabled"]:
                 if is_night_time(config):
-                    set_redshift(True, config["temps"]["night"])
+                    new_state = ("night", config["temps"]["night"])
                 else:
-                    set_redshift(False, config["temps"]["day"])
+                    new_state = ("day", config["temps"]["day"])
+            else:
+                new_state = ("off", 6500)
             
-            time.sleep(60)  # Check every minute
+            if new_state != current_state:
+                if new_state[0] == "off":
+                    set_redshift(False, new_state[1])
+                else:
+                    set_redshift(True, new_state[1])
+                current_state = new_state
+            
+            time.sleep(60)
         except KeyboardInterrupt:
             set_redshift(False, 6500)
             break
