@@ -1,49 +1,32 @@
 #!/usr/bin/env python3
-import os
-import sys
-import json
 import gi
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gtk, GLib
+import os
+import json
+import subprocess
 import signal
 
-# MX Linux Gtk3 fix
-try:
-    gi.require_version('Gtk', '3.0')
-except:
-    pass
-
-try:
-    gi.require_version('AppIndicator3', '0.1')
-except:
-    print("Install libappindicator3-1")
-    sys.exit(1)
-
-from gi.repository import Gtk, AppIndicator3 as AppIndicator, GLib
-
-class RedshiftTray:
+class RedshiftTray(Gtk.Window):
     def __init__(self):
-        self.ind = AppIndicator.Indicator.new(
-            "redshift-scheduler",
-            "night-light",
-            AppIndicator.IndicatorCategory.APPLICATION_STATUS
-        )
-        self.ind.set_status(AppIndicator.IndicatorStatus.ACTIVE)
-        self.ind.set_title("Redshift Scheduler")
+        super().__init__(title="Redshift Scheduler")
+        self.set_type_hint(Gtk.Gdk.WindowTypeHint.DOCK)
+        self.set_keep_above(True)
+        self.set_decorated(False)
+        self.set_skip_taskbar_hint(True)
+        self.move(10, 10)
+        self.resize(1, 1)
         
         self.config_path = os.path.expanduser("~/.config/redshift-scheduler/config.json")
         self.config = self.load_config()
-        self.update_icon()
         
-        menu = Gtk.Menu()
-        toggle = Gtk.MenuItem(label="Toggle Redshift")
-        toggle.connect("activate", self.toggle)
-        quit_item = Gtk.MenuItem(label="Quit")
-        quit_item.connect("activate", Gtk.main_quit)
+        self.button = Gtk.Button(label="🌙" if self.config["enabled"] else "☀️")
+        self.button.connect("clicked", self.toggle)
+        self.add(self.button)
+        self.button.show()
         
-        menu.append(toggle)
-        menu.append(quit_item)
-        menu.show_all()
-        self.ind.set_menu(menu)
-    
+        self.timeout = GLib.timeout_add(1000, self.update_display)
+        
     def load_config(self):
         try:
             with open(self.config_path, 'r') as f:
@@ -52,26 +35,31 @@ class RedshiftTray:
         except:
             return {"enabled": True}
     
-    def update_icon(self):
-        icon = "night-light-on-symbolic" if self.config["enabled"] else "night-light-off-symbolic"
-        self.ind.set_icon(icon)
-        self.ind.set_label("ON" if self.config["enabled"] else "OFF")
-    
-    def toggle(self, widget):
-        self.config["enabled"] = not self.config["enabled"]
-        self.save_config()
-        self.update_icon()
-    
     def save_config(self):
         os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
         config = {"enabled": self.config["enabled"]}
         with open(self.config_path, 'w') as f:
             json.dump(config, f)
     
-    def run(self):
-        GLib.MainLoop().run()
+    def toggle(self, widget):
+        self.config["enabled"] = not self.config["enabled"]
+        self.save_config()
+        self.update_display()
+    
+    def update_display(self):
+        enabled = self.config["enabled"]
+        self.button.set_label("🌙 ON" if enabled else "☀️ OFF")
+        subprocess.run(["killall", "redshift"], check=False)
+        if enabled:
+            subprocess.Popen(["redshift", "-O", "4800"])
+        return True
+    
+    def do_delete_event(self, event):
+        Gtk.main_quit()
+        return True
 
 if __name__ == "__main__":
-    tray = RedshiftTray()
+    win = RedshiftTray()
+    win.show()
     signal.signal(signal.SIGINT, signal.SIG_DFL)
-    tray.run()
+    Gtk.main()
