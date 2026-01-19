@@ -1,55 +1,48 @@
 #!/bin/bash
-
 set -e
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-# GitHub raw repository base URL
 REPO_RAW="https://raw.githubusercontent.com/hattimon/redshift-scheduler/main/redshift-scheduler"
 
-# Functions
 log() { echo -e "${GREEN}[*] $1${NC}"; }
 error() { echo -e "${RED}[✗] $1${NC}"; exit 1; }
 
 log "Installing Redshift Scheduler..."
 
-# 🔍 Check internet
-if ! ping -c 1 archive.ubuntu.com &>/dev/null; then
-  error "No internet connection."
-fi
+# Internet check
+ping -c 1 archive.ubuntu.com &>/dev/null || error "No internet."
 
-# 📦 Install packages
-log "Installing required packages..."
+# Packages (NO jq!)
 sudo apt update
 sudo apt install -y python3 python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
-  redshift zenity libnotify-bin python3-pip || error "Failed to install packages."
+  redshift zenity libnotify-bin pipx || error "Packages failed."
 
-# 🐍 Python dependencies
-pip3 install --user PySimpleGUI >/dev/null 2>&1 || pip3 install PySimpleGUI --user || true
+# PySimpleGUI via pipx (fixes externally-managed)
+pipx ensurepath
+pipx install PySimpleGUI --include-deps >/dev/null 2>&1 || true
 
-# 📁 Create directories
-mkdir -p ~/.local/bin ~/.local/share/redshift-scheduler/icons \
-  ~/.config/redshift-scheduler ~/.config/systemd/user ~/.config/autostart
+# Directories
+mkdir -p ~/.local/bin ~/.config/{systemd/user,autostart} ~/.config/redshift-scheduler
 
-# 📥 Download Python files directly from GitHub raw
-log "Downloading application files..."
-curl -sL "$REPO_RAW/daemon.py" -o ~/.local/bin/redshift-scheduler-daemon || error "Failed to download daemon.py"
-curl -sL "$REPO_RAW/applet.py" -o ~/.local/bin/redshift-scheduler-applet || error "Failed to download applet.py"
-curl -sL "$REPO_RAW/gui.py" -o ~/.local/bin/redshift-scheduler-config || error "Failed to download gui.py"
-curl -sL "$REPO_RAW/__init__.py" -o ~/.local/bin/redshift-scheduler/__init__.py 2>/dev/null || true
+# Download Python files from GitHub raw
+log "Downloading application..."
+curl -sL "$REPO_RAW/daemon.py" -o ~/.local/bin/redshift-scheduler-daemon || error "daemon.py"
+curl -sL "$REPO_RAW/applet.py" -o ~/.local/bin/redshift-scheduler-applet || error "applet.py"
+curl -sL "$REPO_RAW/gui.py" -o ~/.local/bin/redshift-scheduler-config || error "gui.py"
 
 chmod +x ~/.local/bin/redshift-scheduler-*
 
-# 🌐 Add to PATH permanently
+# PATH
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 
-# 🔧 Systemd user service
+# Systemd service (FIXED display)
 cat > ~/.config/systemd/user/redshift-scheduler.service << 'EOF'
 [Unit]
-Description=Redshift Scheduler Daemon
-After=network.target graphical-session.target
+Description=Redshift Scheduler
+After=graphical-session.target
 
 [Service]
 Type=simple
@@ -63,33 +56,22 @@ Environment=XDG_RUNTIME_DIR=%h/.xdg
 WantedBy=default.target
 EOF
 
-# 🔧 XFCE autostart (tray applet)
+# XFCE autostart applet
 cat > ~/.config/autostart/redshift-scheduler.desktop << 'EOF'
 [Desktop Entry]
 Type=Application
 Name=Redshift Scheduler Applet
 Exec=%h/.local/bin/redshift-scheduler-applet
-Hidden=false
 NoDisplay=false
-X-GNOME-Autostart-enabled=true
-Categories=Utility;
-Comment=Redshift night light scheduler
 EOF
 
-# 🚀 Enable and start services
+# Enable services
 systemctl --user daemon-reload
-systemctl --user enable redshift-scheduler
-systemctl --user start redshift-scheduler
+systemctl --user enable --now redshift-scheduler
 
-log "✅ Installation completed successfully!"
-log "🌟 Features:"
-log "• Daemon running: systemctl --user status redshift-scheduler"
-log "• Tray applet: next to speaker (auto-start)"
-log "• Settings GUI: redshift-scheduler-config"
-log "• Reload: source ~/.bashrc"
+log "✅ Installation COMPLETE!"
+log "🖥️ Tray icon: next to speaker (restart XFCE if needed)"
+log "⚙️ Settings: redshift-scheduler-config"
+log "📊 Status: systemctl --user status redshift-scheduler"
 
-# Graficzny success
-zenity --info \
-  --title="Redshift Scheduler" \
-  --text="✅ Installation complete!\n\nTray icon appears next to speaker\nSettings: redshift-scheduler-config\nStatus: systemctl --user status redshift-scheduler" \
-  2>/dev/null || echo "Installation done! Check tray icon."
+zenity --info --text="✅ Redshift Scheduler installed!\n\nTray: speaker area\nConfig: redshift-scheduler-config" 2>/dev/null || true
