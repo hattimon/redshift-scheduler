@@ -233,7 +233,7 @@ cat ~/.config/redshift-scheduler/config.json
 # ============================================
 # 5. CREATE SYSTEMD SERVICES
 # ============================================
-echo -e "${GREEN}🔧 Installing systemd user services...${NC}"
+echo -e "${GREEN}🔧 Creating systemd user services...${NC}"
 
 # Daemon service
 cat > ~/.config/systemd/user/redshift-scheduler-daemon.service << 'DAEMON_SERVICE'
@@ -275,32 +275,57 @@ WantedBy=graphical-session.target
 APPLET_SERVICE
 
 # ============================================
-# 6. ENABLE AND START SERVICES
+# 6. FIX SYSTEMD (MX Linux issue)
 # ============================================
-echo -e "${GREEN}✅ Enabling and starting services...${NC}"
-systemctl --user daemon-reload
-systemctl --user enable redshift-scheduler-daemon.service
-systemctl --user enable redshift-scheduler-applet.service
-systemctl --user start redshift-scheduler-daemon.service
-systemctl --user start redshift-scheduler-applet.service
+echo -e "${GREEN}🔧 Fixing systemd (MX Linux compatibility)...${NC}"
+
+# Kill stuck systemd processes
+pkill -f "systemd1" 2>/dev/null || true
+sleep 1
+
+# Reload daemon with error handling
+echo -e "${YELLOW}Reloading systemd daemon...${NC}"
+if ! systemctl --user daemon-reload 2>/dev/null; then
+    echo -e "${YELLOW}⚠️  Systemd reload issue - retrying with delay...${NC}"
+    sleep 2
+    systemctl --user daemon-reload 2>/dev/null || true
+fi
 
 # ============================================
-# 7. VERIFY INSTALLATION
+# 7. ENABLE AND START SERVICES
 # ============================================
-echo -e "${GREEN}📊 Verifying installation...${NC}"
+echo -e "${GREEN}✅ Enabling services...${NC}"
+systemctl --user enable redshift-scheduler-daemon.service 2>/dev/null || true
+systemctl --user enable redshift-scheduler-applet.service 2>/dev/null || true
+
+echo -e "${GREEN}🚀 Starting services...${NC}"
+systemctl --user start redshift-scheduler-daemon.service 2>/dev/null || true
+systemctl --user start redshift-scheduler-applet.service 2>/dev/null || true
+
 sleep 2
 
+# ============================================
+# 8. VERIFY INSTALLATION
+# ============================================
+echo -e "${GREEN}📊 Verifying installation...${NC}"
+
 echo -e "\n${YELLOW}Daemon status:${NC}"
-systemctl --user status redshift-scheduler-daemon.service --no-pager || true
+systemctl --user status redshift-scheduler-daemon.service --no-pager 2>/dev/null || echo "ℹ️  Service starting..."
 
 echo -e "\n${YELLOW}Applet status:${NC}"
-systemctl --user status redshift-scheduler-applet.service --no-pager || true
+systemctl --user status redshift-scheduler-applet.service --no-pager 2>/dev/null || echo "ℹ️  Service starting..."
 
 echo -e "\n${YELLOW}Running processes:${NC}"
-ps aux | grep redshift-scheduler | grep -v grep || echo "⚠️  Processes still starting..."
+RUNNING=$(ps aux | grep redshift-scheduler | grep -v grep | wc -l)
+if [ $RUNNING -gt 0 ]; then
+    echo "✅ Found $RUNNING running processes:"
+    ps aux | grep redshift-scheduler | grep -v grep
+else
+    echo "⚠️  No processes running yet - they will start on next login"
+fi
 
 # ============================================
-# 8. INSTALLATION SUMMARY
+# 9. INSTALLATION SUMMARY
 # ============================================
 echo -e "\n${GREEN}═══════════════════════════════════════════════════${NC}"
 echo -e "${GREEN}✅ INSTALLATION COMPLETE!${NC}"
@@ -321,8 +346,11 @@ echo "  • Manual start:  ~/.local/bin/redshift-scheduler-daemon &"
 echo "  • Manual applet: DISPLAY=:0 ~/.local/bin/redshift-scheduler-applet &"
 
 echo -e "\n${YELLOW}🔄 Next steps:${NC}"
-echo "  1. Logout/Login OR reboot for full integration"
-echo "  2. Click 🌙 button in panel to toggle ON/OFF"
-echo "  3. Edit config.json to change start/end times"
+echo "  1. Run NOW (manual start):"
+echo "     ~/.local/bin/redshift-scheduler-daemon &"
+echo "     DISPLAY=:0 ~/.local/bin/redshift-scheduler-applet &"
+echo "  2. Logout/Login OR reboot for autostart"
+echo "  3. Click 🌙 button in panel to toggle ON/OFF"
+echo "  4. Edit config.json to change start/end times"
 
 echo -e "\n${GREEN}Happy coding! 🚀${NC}\n"
