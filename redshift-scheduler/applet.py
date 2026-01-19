@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 import gi
 gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk, GLib
+gi.require_version('Gdk', '3.0')
+from gi.repository import Gtk, Gdk, GLib
 import os
 import json
 import subprocess
@@ -10,7 +11,7 @@ import signal
 class RedshiftTray(Gtk.Window):
     def __init__(self):
         super().__init__(title="Redshift Scheduler")
-        self.set_type_hint(Gtk.Gdk.WindowTypeHint.DOCK)
+        self.set_type_hint(Gdk.WindowTypeHint.DOCK)
         self.set_keep_above(True)
         self.set_decorated(False)
         self.set_skip_taskbar_hint(True)
