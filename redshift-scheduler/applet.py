@@ -1,106 +1,69 @@
 #!/usr/bin/env python3
-"""
-XFCE Tray Applet for Redshift Scheduler
-"""
-
-import subprocess
-import json
+import os
 import sys
-from pathlib import Path
-from gi.repository import Gtk, GdkPixbuf, GLib
+import json
 import gi
-gi.require_version('Gtk', '3.0')
+import signal
+import threading
+from gi.repository import Gtk, GdkPixbuf, GLib
 
-CONFIG_FILE = Path.home() / ".config/redshift-scheduler/config.json"
+# Fix Gtk version conflict (MX Linux)
+try:
+    gi.require_version('Gtk', '3.0')
+except ValueError:
+    pass  # Already loaded
 
-class RedshiftApplet:
+from gi.repository import Gtk, GdkPixbuf, GLib
+
+class RedshiftApplet(Gtk.StatusIcon):
     def __init__(self):
-        self.icon = Gtk.StatusIcon()
-        self.icon.connect("popup-menu", self.on_popup_menu)
-        self.icon.connect("activate", self.on_activate)
-        self.update_icon()
-        GLib.timeout_add_seconds(5, self.update_icon)
-
+        super().__init__()
+        self.set_from_icon_name('night-light')
+        self.set_tooltip_text("Redshift Scheduler")
+        self.set_title("Redshift")
+        self.connect("activate", self.on_activate)
+        self.connect("popup-menu", self.on_popup)
+        
+        self.config_path = os.path.expanduser("~/.config/redshift-scheduler/config.json")
+        self.load_config()
+        
     def load_config(self):
-        if CONFIG_FILE.exists():
-            with open(CONFIG_FILE) as f:
-                return json.load(f)
-        return {}
-
-    def save_config(self, config):
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(config, f, indent=2)
-
-    def update_icon(self):
-        config = self.load_config()
-        icon_path = Path.home() / ".local/share/redshift-scheduler/icons"
-        if config.get("enabled"):
-            icon = str(icon_path / "redshift-on.svg")
-        else:
-            icon = str(icon_path / "redshift-off.svg")
-        
         try:
-            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(icon, 24, 24, True)
-            self.icon.set_from_pixbuf(pixbuf)
+            with open(self.config_path, 'r') as f:
+                self.config = json.load(f)
         except:
-            self.icon.set_from_icon_name("redshift")
-        
-        return True
-
+            self.config = {"enabled": True}
+    
     def on_activate(self, icon):
-        """Toggle on/off on click"""
-        config = self.load_config()
-        config["enabled"] = not config.get("enabled", True)
-        self.save_config(config)
-        subprocess.run("systemctl --user restart redshift-scheduler", shell=True)
-        self.update_icon()
-
-    def on_popup_menu(self, icon, button, time):
-        """Show context menu"""
+        self.toggle_redshift()
+    
+    def toggle_redshift(self):
+        self.config["enabled"] = not self.config["enabled"]
+        self.save_config()
+        self.update_tooltip()
+    
+    def save_config(self):
+        os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
+        with open(self.config_path, 'w') as f:
+            json.dump(self.config, f)
+    
+    def update_tooltip(self):
+        status = "ON" if self.config["enabled"] else "OFF"
+        self.set_tooltip_text(f"Redshift {status}")
+    
+    def on_popup(self, icon, button, time):
         menu = Gtk.Menu()
-        
-        # Enable/Disable
-        config = self.load_config()
-        toggle_label = "Disable" if config.get("enabled") else "Enable"
-        toggle = Gtk.MenuItem(toggle_label)
-        toggle.connect("activate", lambda w: self.on_activate(None))
-        menu.append(toggle)
-        
-        menu.append(Gtk.SeparatorMenuItem())
-        
-        # Temperature presets
-        for temp in [4500, 5500, 6500]:
-            item = Gtk.MenuItem(f"Temperature {temp}K")
-            item.connect("activate", self.set_temp, temp)
-            menu.append(item)
-        
-        menu.append(Gtk.SeparatorMenuItem())
-        
-        # Settings
-        settings = Gtk.MenuItem("Settings")
-        settings.connect("activate", self.open_settings)
-        menu.append(settings)
-        
-        # Exit
-        exit_item = Gtk.MenuItem("Exit")
-        exit_item.connect("activate", Gtk.main_quit)
-        menu.append(exit_item)
-        
+        toggle_item = Gtk.MenuItem(label="Toggle Redshift")
+        toggle_item.connect("activate", lambda x: self.toggle_redshift())
+        quit_item = Gtk.MenuItem(label="Quit")
+        quit_item.connect("activate", lambda x: Gtk.main_quit())
+        menu.append(toggle_item)
+        menu.append(quit_item)
         menu.show_all()
-        menu.popup_at_pointer(None)
-
-    def set_temp(self, widget, temp):
-        """Set temperature"""
-        subprocess.run(f"redshift -O {temp}", shell=True)
-
-    def open_settings(self, widget):
-        """Launch GUI config"""
-        subprocess.Popen("redshift-scheduler-config")
-
-    def run(self):
-        """Start applet"""
-        Gtk.main()
+        menu.popup(None, None, None, self, button, time)
 
 if __name__ == "__main__":
-    applet = RedshiftApplet()
-    applet.run()
+    app = RedshiftApplet()
+    app.update_tooltip()
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    Gtk.main()
