@@ -2,54 +2,327 @@
 set -e
 
 GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-REPO_RAW="https://raw.githubusercontent.com/hattimon/redshift-scheduler/main/redshift-scheduler"
+echo -e "${YELLOW}🚀 Redshift Scheduler - Complete Installation${NC}\n"
 
-log() { echo -e "${GREEN}[*] $1${NC}"; }
-error() { echo -e "${RED}[✗] $1${NC}"; exit 1; }
+# ============================================
+# 1. CREATE DIRECTORIES
+# ============================================
+echo -e "${GREEN}📁 Creating directories...${NC}"
+mkdir -p ~/.local/bin
+mkdir -p ~/.config/redshift-scheduler
+mkdir -p ~/.config/systemd/user
+chmod 700 ~/.config/systemd/user
 
-log "Installing Redshift Scheduler..."
+# ============================================
+# 2. INSTALL DAEMON
+# ============================================
+echo -e "${GREEN}📦 Installing daemon...${NC}"
+cat > ~/.local/bin/redshift-scheduler-daemon << 'DAEMON_SCRIPT'
+#!/usr/bin/env python3
+"""Redshift Scheduler Daemon - Controls redshift based on schedule"""
+import json
+import os
+import time
+import subprocess
+import sys
+from datetime import datetime
 
-sudo apt update -o APT::Get::AllowUnauthenticated=true 2>&1 | grep -v "NO_PUBKEY" || true
-sudo apt install -y python3 python3-gi gir1.2-gtk-3.0 redshift zenity libnotify-bin 2>&1 | grep -v "already" || true
+CONFIG_FILE = os.path.expanduser("~/.config/redshift-scheduler/config.json")
 
-mkdir -p ~/.local/bin ~/.config/{autostart} ~/.config/redshift-scheduler
+def load_config():
+    """Load configuration from JSON file"""
+    try:
+        with open(CONFIG_FILE, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Error loading config: {e}", file=sys.stderr)
+        return {"enabled": True, "start_hour": 21, "end_hour": 8, "temperature": 4500}
 
-log "Downloading application files..."
-curl -sL "$REPO_RAW/daemon.py" -o ~/.local/bin/redshift-scheduler-daemon || error "daemon.py"
-curl -sL "$REPO_RAW/applet.py" -o ~/.local/bin/redshift-scheduler-applet || error "applet.py"
+def is_enabled():
+    """Check if redshift scheduler is enabled"""
+    config = load_config()
+    return config.get("enabled", True)
 
-chmod +x ~/.local/bin/redshift-scheduler-*
+def get_time_range():
+    """Get start and end hours from config"""
+    config = load_config()
+    return config.get("start_hour", 21), config.get("end_hour", 8)
 
-if ! grep -q '\.local/bin' ~/.bashrc; then
-  echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-fi
+def get_temperature():
+    """Get temperature setting from config"""
+    config = load_config()
+    return config.get("temperature", 4500)
 
-cat > ~/.config/redshift-scheduler/config.json << 'EOF'
+def should_enable_redshift():
+    """Determine if redshift should be enabled based on current time"""
+    start_h, end_h = get_time_range()
+    now = datetime.now()
+    current_h = now.hour
+    
+    # Handle time range crossing midnight (e.g., 21:00 - 08:00)
+    if start_h > end_h:
+        return current_h >= start_h or current_h < end_h
+    else:
+        return start_h <= current_h < end_h
+
+def set_redshift_state(enable):
+    """Enable or disable redshift"""
+    try:
+        if enable:
+            temp = get_temperature()
+            result = subprocess.run(
+                ["redshift", "-O", str(temp)],
+                capture_output=True,
+                timeout=5
+            )
+            if result.returncode != 0:
+                print(f"Redshift ON failed: {result.stderr.decode()}", file=sys.stderr)
+            else:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] Redshift ON ({temp}K)")
+        else:
+            result = subprocess.run(
+                ["redshift", "-x"],
+                capture_output=True,
+                timeout=5
+            )
+            if result.returncode != 0:
+                print(f"Redshift OFF failed: {result.stderr.decode()}", file=sys.stderr)
+            else:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] Redshift OFF")
+    except FileNotFoundError:
+        print("Error: redshift not found. Install with: sudo apt install redshift", file=sys.stderr)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+
+def main():
+    """Main daemon loop"""
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Redshift Scheduler Daemon started")
+    last_state = None
+    
+    while True:
+        try:
+            if is_enabled():
+                current_state = should_enable_redshift()
+                if current_state != last_state:
+                    set_redshift_state(current_state)
+                    last_state = current_state
+            else:
+                # Disable redshift if scheduler is turned off
+                if last_state is not False:
+                    subprocess.run(["redshift", "-x"], capture_output=True, timeout=5)
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] Scheduler disabled, redshift OFF")
+                    last_state = False
+            
+            time.sleep(60)
+        except KeyboardInterrupt:
+            print("\nShutdown requested")
+            break
+        except Exception as e:
+            print(f"Daemon error: {e}", file=sys.stderr)
+            time.sleep(60)
+
+if __name__ == "__main__":
+    main()
+DAEMON_SCRIPT
+
+chmod +x ~/.local/bin/redshift-scheduler-daemon
+
+# ============================================
+# 3. INSTALL APPLET (GUI)
+# ============================================
+echo -e "${GREEN}📦 Installing applet (GUI)...${NC}"
+cat > ~/.local/bin/redshift-scheduler-applet << 'APPLET_SCRIPT'
+#!/usr/bin/env python3
+"""Redshift Scheduler Applet - System tray GUI toggle"""
+import tkinter as tk
+from tkinter import messagebox
+import json
+import os
+import subprocess
+import sys
+
+CONFIG_FILE = os.path.expanduser("~/.config/redshift-scheduler/config.json")
+
+def load_config():
+    """Load configuration from JSON file"""
+    try:
+        with open(CONFIG_FILE, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        messagebox.showerror("Error", f"Cannot load config: {e}")
+        sys.exit(1)
+
+def save_config(config):
+    """Save configuration to JSON file"""
+    try:
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(config, f, indent=2)
+    except Exception as e:
+        messagebox.showerror("Error", f"Cannot save config: {e}")
+
+def toggle_enabled():
+    """Toggle scheduler enabled/disabled"""
+    config = load_config()
+    config["enabled"] = not config.get("enabled", True)
+    save_config(config)
+    update_button()
+
+def update_button():
+    """Update button appearance based on current state"""
+    config = load_config()
+    enabled = config.get("enabled", True)
+    status_text = f"🌙 {'ON' if enabled else 'OFF'}"
+    btn.config(
+        text=status_text,
+        bg="#2ECC71" if enabled else "#95A5A6",
+        fg="white",
+        activebackground="#27AE60" if enabled else "#7F8C8D"
+    )
+    root.title(f"Redshift Scheduler - {status_text}")
+
+def on_closing():
+    """Handle window close"""
+    root.quit()
+
+# Create main window
+root = tk.Tk()
+root.title("Redshift Scheduler")
+root.geometry("180x100")
+root.resizable(False, False)
+
+# Create toggle button
+btn = tk.Button(
+    root,
+    command=toggle_enabled,
+    font=("Arial", 24, "bold"),
+    width=8,
+    height=2,
+    relief=tk.RAISED,
+    bd=3
+)
+btn.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+update_button()
+
+root.protocol("WM_DELETE_WINDOW", on_closing)
+root.mainloop()
+APPLET_SCRIPT
+
+chmod +x ~/.local/bin/redshift-scheduler-applet
+
+# ============================================
+# 4. CREATE CONFIG FILE
+# ============================================
+echo -e "${GREEN}⚙️  Creating configuration...${NC}"
+cat > ~/.config/redshift-scheduler/config.json << 'CONFIG'
 {
   "enabled": true,
-  "schedule": {"start": "21:00", "stop": "08:00"},
-  "temps": {"day": 5800, "night": 4800}
+  "start_hour": 21,
+  "end_hour": 8,
+  "temperature": 4500
 }
-EOF
+CONFIG
 
-cat > ~/.config/autostart/redshift-scheduler.desktop << 'EOF'
-[Desktop Entry]
-Type=Application
-Name=Redshift Scheduler
-Exec=%h/.local/bin/redshift-scheduler-applet
-NoDisplay=false
-X-XFCE-Autostart-Override=true
-Hidden=false
-EOF
+echo -e "${YELLOW}📝 Config file: ~/.config/redshift-scheduler/config.json${NC}"
+cat ~/.config/redshift-scheduler/config.json
 
-log "✅ Installation complete!"
-log "📝 Next steps:"
-log "  1. Restart XFCE or log out/in"
-log "  2. Tray icon appears in panel (🌙)"
-log "  3. Manual start: ~/.local/bin/redshift-scheduler-applet &"
-log "  4. Config: nano ~/.config/redshift-scheduler/config.json"
+# ============================================
+# 5. CREATE SYSTEMD SERVICES
+# ============================================
+echo -e "${GREEN}🔧 Installing systemd user services...${NC}"
 
-zenity --info --text="✅ Redshift Scheduler installed!\n\n🌙 Tray applet starts with XFCE\n⚙️ Config: ~/.config/redshift-scheduler/config.json\n📝 Manual: ~/.local/bin/redshift-scheduler-applet &" 2>/dev/null || true
+# Daemon service
+cat > ~/.config/systemd/user/redshift-scheduler-daemon.service << 'DAEMON_SERVICE'
+[Unit]
+Description=Redshift Scheduler Daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/redshift-scheduler-daemon
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
+DAEMON_SERVICE
+
+# Applet service (GUI)
+cat > ~/.config/systemd/user/redshift-scheduler-applet.service << 'APPLET_SERVICE'
+[Unit]
+Description=Redshift Scheduler Applet
+PartOf=graphical-session.target
+After=graphical-session-pre.target
+
+[Service]
+Type=simple
+ExecStart=sh -c 'DISPLAY=${DISPLAY:-:0} %h/.local/bin/redshift-scheduler-applet'
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+
+[Install]
+WantedBy=graphical-session.target
+APPLET_SERVICE
+
+# ============================================
+# 6. ENABLE AND START SERVICES
+# ============================================
+echo -e "${GREEN}✅ Enabling and starting services...${NC}"
+systemctl --user daemon-reload
+systemctl --user enable redshift-scheduler-daemon.service
+systemctl --user enable redshift-scheduler-applet.service
+systemctl --user start redshift-scheduler-daemon.service
+systemctl --user start redshift-scheduler-applet.service
+
+# ============================================
+# 7. VERIFY INSTALLATION
+# ============================================
+echo -e "${GREEN}📊 Verifying installation...${NC}"
+sleep 2
+
+echo -e "\n${YELLOW}Daemon status:${NC}"
+systemctl --user status redshift-scheduler-daemon.service --no-pager || true
+
+echo -e "\n${YELLOW}Applet status:${NC}"
+systemctl --user status redshift-scheduler-applet.service --no-pager || true
+
+echo -e "\n${YELLOW}Running processes:${NC}"
+ps aux | grep redshift-scheduler | grep -v grep || echo "⚠️  Processes still starting..."
+
+# ============================================
+# 8. INSTALLATION SUMMARY
+# ============================================
+echo -e "\n${GREEN}═══════════════════════════════════════════════════${NC}"
+echo -e "${GREEN}✅ INSTALLATION COMPLETE!${NC}"
+echo -e "${GREEN}═══════════════════════════════════════════════════${NC}\n"
+
+echo -e "${YELLOW}📁 Installed files:${NC}"
+echo "  • Daemon:  ~/.local/bin/redshift-scheduler-daemon"
+echo "  • Applet:  ~/.local/bin/redshift-scheduler-applet"
+echo "  • Config:  ~/.config/redshift-scheduler/config.json"
+echo "  • Services: ~/.config/systemd/user/"
+
+echo -e "\n${YELLOW}🔧 Useful commands:${NC}"
+echo "  • Check daemon:  systemctl --user status redshift-scheduler-daemon"
+echo "  • Check applet:  systemctl --user status redshift-scheduler-applet"
+echo "  • View logs:     journalctl --user -u redshift-scheduler-daemon -f"
+echo "  • Edit config:   nano ~/.config/redshift-scheduler/config.json"
+echo "  • Manual start:  ~/.local/bin/redshift-scheduler-daemon &"
+echo "  • Manual applet: DISPLAY=:0 ~/.local/bin/redshift-scheduler-applet &"
+
+echo -e "\n${YELLOW}🔄 Next steps:${NC}"
+echo "  1. Logout/Login OR reboot for full integration"
+echo "  2. Click 🌙 button in panel to toggle ON/OFF"
+echo "  3. Edit config.json to change start/end times"
+
+echo -e "\n${GREEN}Happy coding! 🚀${NC}\n"
